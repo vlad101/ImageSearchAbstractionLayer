@@ -5,7 +5,7 @@ var controller = require('./imagesearch.controller');
 
 var router = express.Router();
 
-router.get('/', controller.index);
+router.get('/latest', controller.index);
 router.get('/:id', controller.show);
 router.get('/imgur/:search', controller.imageSearch);
 router.post('/', controller.create);

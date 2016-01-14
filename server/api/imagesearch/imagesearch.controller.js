@@ -29,6 +29,28 @@ function responseWithResult(res, statusCode) {
   };
 }
 
+/*
+  [{
+    term":"123",
+    "date":"2016-01-14T15:38:35.852Z"
+  }, ...]
+*/
+function responseWithImageResult(res, statusCode) {
+  statusCode = statusCode || 200;
+  var data = [];
+  return function(entity) {
+    if (entity) {
+      for(var o in entity) {
+        var jsonObj = entity[o].toObject();
+        delete jsonObj._id;
+        delete jsonObj.__v;
+        entity[o] = jsonObj;
+      }
+      res.status(statusCode).json(entity);
+    }
+  };
+}
+
 function handleEntityNotFound(res) {
   return function(entity) {
     if (!entity) {
@@ -71,62 +93,85 @@ function removeEntity(res) {
   }
 */
 export function imageSearch(req, res) {
-  var imgurClientId = '35b0765618d05b7';
-  var date = new Date();
-  var searchStr = req.params.search;
-  var offset = 1;
 
-  var data = {
-    imgurClientId:'35b0765618d05b7',
-    searchStr: searchStr,
-    offset: offset,
-    date: date.toISOString()
+  var params = {
+    imgurClientId: '35b0765618d05b7',
+    searchStr: req.params.search,
+    offset: 1
   };
 
   // Validate search string
-  if(!data.searchStr) {
+  if(!params.searchStr) {
     return res.status(500).send({error: 'Invalid search string'});
   }
 
   // Validate offset value
   for(var prop in req.query) {
     if(prop === 'offset')
-      if(req.query[prop] % 1 === 0 && req.query[prop] <= 0) {
+      if(req.query[prop] % 1 !== 0 || req.query[prop] <= 0) {
         return res.status(500).send({error: 'Invalid offset'});
       }
-      offset = req.query[prop];
+      params.offset = req.query[prop];
   }
 
-  doGetImgurResult(res, data);
+  doGetImgurResult(req, res, params);
 }
-function doGetImgurResult(res, data) {
+
+function doGetImgurResult(req, res, params) {
+
   request({
-    url: 'https://api.imgur.com/3/gallery/search/time/' + data.offset + '?q=' + data.searchStr,
+    url: 'https://api.imgur.com/3/gallery/search/time/' + params.offset + '?q=' + params.searchStr,
     headers: {
-        'Authorization': 'Client-ID ' + data.imgurClientId
+        'Authorization': 'Client-ID ' + params.imgurClientId
     },
     json: true
   }, function(err, resp, json) {
     if (err) handleError(resp);
-    var data = json.data;
+    var jsonData = json.data;
     var propList = ['id', 'title', 'datetime', 'type', 'animated', 'width', 'height', 'size', 
                     'views', 'bandwidth', 'deletehash', 'gifv', 'mp4', 'webm', 'looping', 'vote', 
                     'favorite', 'nsfw', 'comment_count', 'comment_preview', 'topic_id', 'section', 
                     'account_url', 'account_id', 'ups', 'downs', 'points', 'score', 'is_album',
                     'cover', 'cover_width', 'cover_height', 'privacy', 'layout', 'images_count'];
-    for(var o in data) {
-      for(var i = 0; i < propList.length; i++)  
-        delete data[o][propList[i]];
-    }
+    jsonData = doPrepareData(jsonData, propList);
 
-    return res.status(200).send(data);
+    createImageSearch(req, res, jsonData, params.searchStr);
   });
+}
+
+// Creates a new Imagesearch in the DB
+function createImageSearch(req, res, jsonData, searchQuery) {
+
+  var imageSearch = {
+    term: searchQuery
+  };
+  Imagesearch.createAsync(imageSearch)
+    .then(function() {
+      return res.status(200).send(jsonData);
+    })
+    .catch(handleError(res));
+}
+
+// Prepare json data
+function doPrepareData(jsonData, propList) {
+  for(var o in jsonData) {
+    for(var i = 0; i < propList.length; i++)  
+      delete jsonData[o][propList[i]];
+  }
+  return jsonData;
 }
 
 // Gets a list of Imagesearchs
 export function index(req, res) {
   Imagesearch.findAsync()
-    .then(responseWithResult(res))
+    .then(responseWithImageResult(res))
+    .catch(handleError(res));
+}
+
+// Creates a new Imagesearch in the DB
+export function create(req, res) {
+  Imagesearch.createAsync(req.body)
+    .then(responseWithResult(res, 201))
     .catch(handleError(res));
 }
 
@@ -135,13 +180,6 @@ export function show(req, res) {
   Imagesearch.findByIdAsync(req.params.id)
     .then(handleEntityNotFound(res))
     .then(responseWithResult(res))
-    .catch(handleError(res));
-}
-
-// Creates a new Imagesearch in the DB
-export function create(req, res) {
-  Imagesearch.createAsync(req.body)
-    .then(responseWithResult(res, 201))
     .catch(handleError(res));
 }
 
